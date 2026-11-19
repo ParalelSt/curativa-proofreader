@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="hr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transcript Proofreading</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --line: #e3e6eb; --text: #1d2330; --muted: #6b7385;
+    --accent: #2f6fde; --ok: #1f9d55; --bad: #c2453d; --warn: #c98a12; --sel: #eaf1fd;
+    --c-filler: #c98a12; --c-word: #2f6fde; --c-ai: #138a7e; --pop: #ffffff; --tint: 24%;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171c; --panel: #1c2027; --line: #2c323c; --text: #e6e9ef; --muted: #8d95a5;
+            --accent: #6d9cf0; --ok: #3cc47c; --bad: #e0685f; --warn: #e2a93b; --sel: #24314a;
+            --c-filler: #e2a93b; --c-word: #6d9cf0; --c-ai: #3cc4b4; --pop: #262b34; --tint: 40%; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--text); height: 100vh; display: grid;
+         grid-template-columns: 270px 300px 1fr; }
+  aside, nav { border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; }
+  aside { display: flex; flex-direction: column; }
+  #videos { overflow-y: auto; flex: 1; }
+  .aside-actions { padding: 10px 14px 14px; border-top: 1px solid var(--line); }
+  .aside-actions button { width: 100%; margin-top: 6px; }
+  .aside-actions .note { display: block; margin-top: 5px; overflow-wrap: anywhere; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+       margin: 0; padding: 14px 14px 8px; }
+  .asidehead { display: flex; align-items: center; justify-content: space-between; padding-right: 14px; }
+  .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+  .switch input { accent-color: var(--accent); margin: 0; }
+  .video { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .video:hover { background: var(--sel); }
+  .video.active { background: var(--sel); box-shadow: inset 3px 0 var(--accent); }
+  .video .title { font-weight: 600; font-size: 13px; }
+  .video .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .video-state { display: inline-block; margin-top: 3px; font-size: 11px; color: var(--muted); }
+  .video-state.done { color: var(--ok); }
+  .recording-action { display: flex; align-items: center; gap: 8px; padding: 0 12px 10px; color: var(--muted); font-size: 12px; }
+  .recording-action .error { color: var(--bad); }
+  #addRecordings { display: block; width: calc(100% - 28px); margin: 4px 14px 10px; }
+  .job-row { padding: 8px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .job-row:hover { background: var(--sel); }
+  .job-row .title { font-size: 12px; font-weight: 600; }
+  .job-row .meta { color: var(--muted); font-size: 11px; }
+  dialog { width: min(640px, calc(100vw - 28px)); max-height: min(88vh, 800px); padding: 0; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  #statusDialog { width: min(900px, calc(100vw - 28px)); }
+  .status-table-wrap { max-height: min(62vh, 560px); overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+  .status-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .status-table th, .status-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .status-table th { position: sticky; top: 0; background: var(--panel); color: var(--muted); }
+  .status-table td { overflow-wrap: anywhere; }
+  .status-table tr:last-child td { border-bottom: 0; }
+  dialog::backdrop { background: rgba(0,0,0,.48); }
+  .dialog-head, .dialog-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .dialog-head h3 { margin: 0; font-size: 16px; }
+  .dialog-body { padding: 16px 18px; overflow-y: auto; }
+  .dialog-foot { border-top: 1px solid var(--line); border-bottom: 0; justify-content: flex-end; }
+  .dialog-body textarea, .dialog-body input { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--text); background: var(--bg); font: inherit; }
+  .dialog-body textarea { resize: vertical; min-height: 110px; }
+  .add-section { margin-bottom: 18px; }
+  .add-section label { display: block; margin-bottom: 6px; }
+  .results { margin-top: 12px; border-top: 1px solid var(--line); }
+  .result-row, .progress-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .result-row.muted { color: var(--muted); }
+  .result-row .result-info, .progress-row .result-info { flex: 1; min-width: 0; }
+  .result-row .result-title, .progress-row .result-title { font-weight: 600; overflow-wrap: anywhere; }
+  .result-row .category, .result-row .message, .progress-row .status { color: var(--muted); font-size: 12px; }
+  .result-row .message { text-align: right; flex: none; max-width: 36%; }
+  .key-error, .add-error { color: var(--bad); font-size: 12px; margin-top: 6px; }
+  .progress { margin-top: 22px; }
+  .progress h4 { margin: 0 0 6px; font-size: 13px; }
+  .statusline strong { color: var(--text); }
+  @media (max-width: 520px) { .dialog-head, .dialog-foot { padding: 12px; } .dialog-body { padding: 12px; } .result-row { gap: 6px; } .result-row .message { max-width: 30%; } }
+  .badge { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 8px;
+           border: 1px solid currentColor; margin-right: 4px; }
+  .badge.test { color: var(--accent); }
+  .bar { height: 4px; background: var(--line); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--ok); }
+  .seg { display: flex; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--line);
+         cursor: pointer; font-size: 13px; align-items: baseline; }
+  .seg:hover { background: var(--sel); }
+  .seg.active { background: var(--sel); box-shadow: inset 3px 0 var(--accent); }
+  .seg .n { color: var(--muted); width: 26px; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+  .seg .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--line); align-self: center; }
+  .dot.draft { background: transparent; border: 2px solid var(--warn); }
+  .dot.approved { background: var(--ok); } .dot.excluded { background: var(--bad); } .dot.stale { background: var(--warn); }
+  main { overflow-y: auto; padding: 22px 28px; }
+  .empty { color: var(--muted); margin-top: 30vh; text-align: center; }
+  .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .head strong { font-size: 16px; margin-right: 6px; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
+  .pill.warn { color: var(--warn); border-color: var(--warn); }
+  .pill.ok { color: var(--ok); border-color: var(--ok); }
+  .pill.bad { color: var(--bad); border-color: var(--bad); }
+  .player { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  audio { width: 100%; max-width: 640px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+           padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; align-items: center; }
+  .chip { font-size: 12px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--warn);
+          color: var(--warn); cursor: pointer; background: transparent; }
+  .context { color: var(--muted); font-size: 13px; margin: 6px 0; max-width: 900px; }
+  /* The textarea sits on top of a layer that paints the highlights behind the same text. */
+  .edwrap { position: relative; max-width: 900px; background: var(--panel); border-radius: 8px; }
+  .edwrap textarea, .backdrop { font-family: inherit; font-size: 17px; line-height: 1.6; letter-spacing: normal;
+             padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; margin: 0;
+             white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; }
+  .edwrap textarea { position: relative; z-index: 1; display: block; width: 100%; min-height: 170px;
+             background: transparent; color: var(--text); resize: none; overflow: hidden; }
+  .edwrap textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .backdrop { position: absolute; inset: 0; color: transparent; border-color: transparent; overflow: hidden; pointer-events: none; }
+  .backdrop mark { color: transparent; border-radius: 3px; background: color-mix(in srgb, var(--c) var(--tint), transparent);
+                   box-shadow: inset 0 -2px 0 var(--c); }
+  .k-filler { --c: var(--c-filler); } .k-word { --c: var(--c-word); } .k-ai { --c: var(--c-ai); }
+  .backdrop mark.open { background: color-mix(in srgb, var(--c) 60%, transparent); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; max-width: 900px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend span::before { content: ""; width: 12px; height: 10px; border-radius: 3px; background: color-mix(in srgb, var(--c) 40%, transparent); }
+  .pop { position: absolute; z-index: 3; width: min(320px, 92%); background: var(--pop); border: 1px solid var(--line);
+         border-radius: 10px; padding: 10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.25); font-size: 13px;
+         display: flex; flex-direction: column; gap: 6px; line-height: 1.4; }
+  .pop .kind { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--c); }
+  .pop .swap { font-size: 15px; }
+  .pop .swap s { color: var(--muted); }
+  .pop .why { color: var(--muted); font-size: 12.5px; }
+  .pop .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; align-items: center; }
+  .note { font-size: 12px; color: var(--muted); }
+  .keys { margin-top: 18px; font-size: 12px; color: var(--muted); }
+  kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px;
+        border-radius: 4px; padding: 0 4px; background: var(--panel); }
+  .diffs { margin-left: auto; font-size: 11px; color: var(--muted); flex: none; font-variant-numeric: tabular-nums; }
+  .old { font-size: 13px; border-left: 3px solid var(--warn); padding: 6px 10px; margin-bottom: 10px; max-width: 900px; }
+  @media (max-width: 900px) {
+    body { grid-template-columns: 1fr; height: auto; }
+    aside, nav { max-height: 35vh; border-right: 0; border-bottom: 1px solid var(--line); }
+    main { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<aside><div class="asidehead"><h2>Videos</h2>
+  <label class="switch" title="Show model and spelling hints in the text"><input type="checkbox" id="hintsToggle"> Hints</label></div>
+  <button class="primary" id="addRecordings">+ Add recordings</button><div id="jobs"></div><div id="videos"></div>
+  <div class="aside-actions"><button id="packageWork">Package finished work</button><span class="note" id="packageNote"></span><button id="openStatus">Status list</button><button id="openImport">Import finished work</button></div></aside>
+<nav><h2 id="segTitle">Segments</h2><div id="recordingAction" class="recording-action"></div><div id="segments"></div></nav>
+<main id="editor"><div class="empty">Choose a video on the left.</div></main>
+<dialog id="addDialog" aria-labelledby="addTitle"><div class="dialog-head"><h3 id="addTitle">Add recordings</h3><button type="button" id="closeAdd" aria-label="Close">✕</button></div>
+  <div class="dialog-body">
+    <section id="keySection" class="add-section" hidden><div>Paste the ElevenLabs key once. It is stored on this computer only.</div><div style="display:flex;gap:8px;margin-top:8px"><input id="keyInput" type="password" autocomplete="off" aria-label="ElevenLabs key"><button id="saveKey" class="primary">Save key</button></div><div id="keyError" class="key-error"></div></section>
+    <section id="linksSection" class="add-section"><label for="linksInput">Paste YouTube links from the sheet, one per line:</label><textarea id="linksInput" rows="5"></textarea><div style="margin-top:8px"><button id="checkLinks">Check links</button><span id="checkStatus" class="note" style="margin-left:8px"></span></div><div id="results" class="results"></div></section>
+    <div id="addError" class="add-error"></div>
+    <section id="progress" class="progress" hidden><h4>In progress</h4><div id="progressRows"></div></section>
+  </div><div class="dialog-foot"><button id="cancelAdd">Cancel</button><button id="submitAdd" class="primary" disabled>Add recordings</button></div>
+</dialog>
+<dialog id="importDialog" aria-labelledby="importTitle"><div class="dialog-head"><h3 id="importTitle">Import finished work</h3><button type="button" id="closeImport" aria-label="Close">Close</button></div>
+  <div class="dialog-body"><div>Choose the zip files you received. Recordings you already have are skipped.</div><input id="importFiles" type="file" accept=".zip" multiple style="margin-top:12px"><div id="importResults" style="margin-top:12px"></div></div>
+  <div class="dialog-foot"><button id="cancelImport">Cancel</button><button id="submitImport" class="primary" disabled>Import</button></div>
+</dialog>
+<dialog id="statusDialog" aria-labelledby="statusTitle"><div class="dialog-head"><h3 id="statusTitle">Status</h3><button type="button" id="closeStatus" aria-label="Close">Close</button></div>
+  <div class="dialog-body"><div id="statusMessage" class="note" style="margin-bottom:10px"></div><div class="status-table-wrap"><table class="status-table"><thead><tr><th>Title</th><th>Category</th><th>Sheet status</th><th>Person</th><th>In this tool</th></tr></thead><tbody id="statusRows"></tbody></table></div></div>
+  <div class="dialog-foot"><button id="copyStatus">Copy for sheet</button><button id="closeStatusFoot">Close</button></div>
+</dialog>
+
+<script>
+const isMac = navigator.platform.includes('Mac');
+const MOD = isMac ? '⌘' : 'Ctrl';
+let videos = [], segments = [], video = null, index = -1, dirty = false;
+let speed = 1;
+try { speed = parseFloat(localStorage.getItem('speed')) || 1; } catch {}
+
+const $ = (sel) => document.querySelector(sel);
+const esc = (s) => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const norm = w => w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+const words = t => t.split(/\s+/).filter(Boolean);
+const FILLER = /^(e+h*m*|h+m+|m+h*m+|a+h+|u+h+m*|e+m+)$/;
+
+const KIND = { filler: 'Filler or repeat', word: 'Model heard different', ai: 'Spelling' };
+let dismissed = {};   // "Keep mine" choices, stored on the server (data/review_state.json)
+let hintsOn = false;  // the Hints switch, also stored on the server; off until turned on
+
+// Typed but not approved text is saved as a draft on the server while you type.
+let pendingDraft = null, draftTimer = null;
+function queueDraft(s, value) {
+  s.draft = value.trim() === s.text.trim() ? null : value;
+  pendingDraft = { file: s.file, auto_text: s.auto_text, text: s.draft };
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(flushDraft, 400);
+}
+function flushDraft() {
+  clearTimeout(draftTimer);
+  if (!pendingDraft) return;
+  const body = JSON.stringify(pendingDraft); pendingDraft = null;
+  fetch('/api/draft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true })
+    .catch(() => { $('#saved') && ($('#saved').textContent = 'Draft not saved: the server is not reachable.'); });
+}
+const postState = body => fetch('/api/state', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
+const keyOf = (s, g) => `${g.kind}|${g.from}|${g.to}`;
+
+// Suggestions for the current text: where the second model heard something else
+// (aligned word by word), plus grammar fixes found in data/grammar.json.
+function suggestionsFor(seg, text) {
+  if (!hintsOn) return [];
+  const toks = [...text.matchAll(/\S+/g)].map(m => ({ w: m[0], start: m.index, end: m.index + m[0].length, n: norm(m[0]) }))
+    .filter(t => t.n);
+  const out = [];
+  if (seg.hint) {
+    const raw = words(seg.hint.text).filter(w => norm(w)), b = raw.map(norm), a = toks.map(t => t.n);
+    const n = a.length, m = b.length, L = Array.from({ length: n + 1 }, () => new Int16Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+      L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    let i = 0, j = 0, region = null;
+    const seen = [];                    // model's spelling of each matched word, keeps its punctuation
+    const flush = () => {
+      if (!region) return;
+      const { i0, i1, ins } = region; region = null;
+      let r0 = i0, r1 = i1, to = ins.join(' '), kind = 'word', why = 'The model heard something different here.';
+      if (i0 === i1) {                       // only extra words: attach them to a neighbouring word
+        const repeat = ins.every((w, k) => FILLER.test(norm(w)) || norm(w) === norm(ins[k - 1] || '') ||
+          (toks[i0] && norm(w) === toks[i0].n) || (toks[i0 - 1] && norm(w) === toks[i0 - 1].n));
+        if (i0 < n) { r0 = i0; r1 = i0 + 1; to = to + ' ' + (j < m ? raw[j] : toks[i0].w); }
+        else if (i0 > 0) { r0 = i0 - 1; r1 = i0; to = (seen[i0 - 1] || toks[i0 - 1].w) + ' ' + to; }
+        else return;
+        if (repeat) { kind = 'filler'; why = 'The model heard a filler or repeat here. Listen and add it if it is said.'; }
+        else why = 'The model heard extra words here.';
+      } else if (!ins.length) { to = ''; why = 'The model did not hear this. Listen: is it said?'; }
+      out.push({ start: toks[r0].start, end: toks[r1 - 1].end, to, kind, why });
+    };
+    while (i < n || j < m) {
+      if (i < n && j < m && a[i] === b[j]) { flush(); seen[i] = raw[j]; i++; j++; continue; }
+      if (!region) region = { i0: i, i1: i, ins: [] };
+      if (j < m && (i >= n || L[i][j + 1] >= L[i + 1][j])) { region.ins.push(raw[j]); j++; }
+      else { i++; region.i1 = i; }
+    }
+    flush();
+  }
+  for (const g of seg.grammar || []) {
+    const at = text.indexOf(g.find);
+    if (at >= 0) out.push({ start: at, end: at + g.find.length, to: g.to, kind: 'ai', why: g.why });
+  }
+  // No overlaps: grammar fixes win, then the earlier suggestion.
+  out.sort((x, y) => (x.kind === 'ai' ? 0 : 1) - (y.kind === 'ai' ? 0 : 1) || x.start - y.start);
+  const kept = [];
+  for (const g of out) {
+    g.from = text.slice(g.start, g.end);
+    if (kept.some(k => g.start < k.end && k.start < g.end)) continue;
+    if ((dismissed[seg.file] || []).includes(keyOf(seg, g))) continue;
+    kept.push(g);
+  }
+  return kept.sort((x, y) => x.start - y.start);
+}
+
+async function loadVideos() {
+  videos = await (await fetch('/api/videos')).json();
+  $('#videos').innerHTML = videos.length ? videos.map(v => `
+    <div class="video ${v.video_id === video ? 'active' : ''}" data-id="${v.video_id}">
+      <div class="title">${esc(v.title)}</div>
+      <div class="meta">${v.split === 'test' ? '<span class="badge test">test</span>' : ''}${esc(v.category)}
+        · ${v.minutes.toFixed(1)} min · ${v.done}/${v.total}</div>
+      ${v.state === 'done' ? '<span class="video-state done">done</span>' : v.state === 'sent' ? '<span class="video-state">sent</span>' : ''}
+      <div class="bar"><div style="width:${v.total ? 100 * v.done / v.total : 0}%"></div></div>
+    </div>`).join('') : (jobs.length ? '' : '<div class="note" style="padding:10px 14px">No recordings yet. Click “+ Add recordings”.</div>');
+  document.querySelectorAll('.video').forEach(el => el.onclick = () => openVideo(el.dataset.id));
+}
+
+let jobs = [], checkedResults = null, polling = false, pollTimer = null, hadReadyJobs = new Set(), keyIsSet = false;
+const activeSteps = ['queued', 'downloading', 'transcribing', 'cutting'];
+function jobTitle(j) { return esc(j.title || j.url || 'Recording'); }
+function shortJobStatus(j) { return ({ queued: 'Waiting', downloading: 'Downloading...', transcribing: 'Transcribing...', cutting: 'Cutting...', failed: 'Failed — open Add recordings' })[j.step] || ''; }
+function renderJobs() {
+  $('#jobs').innerHTML = jobs.filter(j => j.step !== 'ready').map(j => `<div class="job-row" data-job="${j.id}"><div class="title">${jobTitle(j)}</div><div class="meta">${shortJobStatus(j)}</div></div>`).join('');
+  document.querySelectorAll('.job-row').forEach(el => el.onclick = async () => { $('#addDialog').showModal(); await checkKey(); });
+  const readyNow = jobs.filter(j => j.step === 'ready');
+  if (readyNow.some(j => !hadReadyJobs.has(j.id))) loadVideos();
+  hadReadyJobs = new Set(readyNow.map(j => j.id));
+  $('#progress').hidden = jobs.length === 0;
+  $('#progressRows').innerHTML = jobs.map(j => {
+    let status = '';
+    if (j.step === 'queued') status = 'Waiting';
+    else if (['downloading','transcribing','cutting'].includes(j.step)) {
+      const steps = ['downloading','transcribing','cutting'];
+      status = `<span class="statusline">${steps.map((s,i) => `${i ? ' → ' : ''}${s === j.step ? `<strong>${s}</strong>` : s}`).join('')} · step ${steps.indexOf(j.step)+1} of 3 · ${Math.floor((j.seconds||0)/60)}:${String(Math.floor((j.seconds||0)%60)).padStart(2,'0')}</span>`;
+    } else if (j.step === 'ready') status = `Ready · ${j.clips || 0} clips`;
+    else status = `<span style="color:var(--bad)">${esc(j.error || 'Failed')}</span> <button class="small retry" data-id="${j.id}">Try again</button>`;
+    return `<div class="progress-row"><div class="result-info"><div class="result-title">${jobTitle(j)}</div><div class="status">${status}</div></div></div>`;
+  }).join('');
+  document.querySelectorAll('.retry').forEach(b => b.onclick = async () => { await postJson('/api/retry', {id:+b.dataset.id}); startPolling(); });
+  const active = jobs.some(j => activeSteps.includes(j.step));
+  if (active) startPolling(); else { clearTimeout(pollTimer); polling = false; }
+}
+async function refreshJobs() {
+  try { jobs = (await (await fetch('/api/jobs')).json()).jobs || []; renderJobs(); } catch {}
+}
+function startPolling() {
+  if (polling) return;
+  polling = true;
+  const poll = async () => { await refreshJobs(); if (jobs.some(j => activeSteps.includes(j.step))) pollTimer = setTimeout(poll, 2000); else polling = false; };
+  pollTimer = setTimeout(poll, 2000);
+}
+async function postJson(url, body) { return fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}); }
+$('#packageWork').onclick = async () => {
+  const button = $('#packageWork'), note = $('#packageNote'); button.disabled = true; note.textContent = '';
+  try {
+    const res = await postJson('/api/package', {}), data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not package finished work.');
+    note.textContent = data.zip ? `Packaged ${data.recordings} recording(s). File: ${data.zip}` : data.message;
+    await loadVideos();
+  } catch (error) { note.textContent = error.message || 'Could not package finished work.'; }
+  finally { button.disabled = false; }
+};
+
+$('#openImport').onclick = async () => {
+  $('#importDialog').showModal(); $('#importResults').textContent = '';
+  try { const data = await (await fetch('/api/inbox')).json(); $('#importResults').textContent = data.zips.length ? `Already uploaded: ${data.zips.join(', ')}` : ''; } catch {}
+};
+$('#closeImport').onclick = $('#cancelImport').onclick = () => $('#importDialog').close();
+$('#importFiles').onchange = () => { $('#submitImport').disabled = !$('#importFiles').files.length; };
+$('#submitImport').onclick = async () => {
+  const button = $('#submitImport'), input = $('#importFiles'), results = $('#importResults');
+  button.disabled = true; results.textContent = 'Importing...';
+  try {
+    for (const file of input.files) {
+      const response = await fetch('/api/import-upload?name=' + encodeURIComponent(file.name), {method:'POST', body:file});
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Upload failed.');
+    }
+    const response = await postJson('/api/import', {}), data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Import failed.');
+    results.innerHTML = (data.reports || []).map(report => `<div style="padding:8px 0;border-bottom:1px solid var(--line)"><strong>${esc(report.zip)}</strong>${report.rejected ? `<div style="color:var(--bad)">Rejected: ${esc(report.rejected)}</div>` : ''}${(report.imported || []).map(item => `<div>Imported ${esc(item.video_id)}: ${item.clips} clips, ${item.approved} approved, ${item.excluded} excluded</div>`).join('')}${(report.skipped || []).map(item => `<div>Skipped ${esc(item.video_id)}: ${esc((item.reason || '').replace(/^skipped:\s*/,''))}</div>`).join('')}</div>`).join('') || 'No zip files to import.';
+  } catch (error) { results.innerHTML = `<div style="color:var(--bad)">${esc(error.message || 'Upload failed.')}</div>`; }
+  await loadVideos(); input.value = ''; button.disabled = true;
+};
+
+let statusRows = [];
+const sheetStatusLabel = status => ({free:'free', in_progress:'in progress', done:'done'})[status] || status;
+const localStatusLabel = row => row.local ? `${({not_started:'not started', in_progress:'in progress', done:'done', sent:'sent'})[row.local] || row.local}${row.progress ? ` ${row.progress}` : ''}` : '';
+$('#openStatus').onclick = async () => {
+  $('#statusDialog').showModal();
+  $('#statusMessage').textContent = 'Loading...'; $('#statusRows').innerHTML = '';
+  try {
+    const data = await (await fetch('/api/status')).json(); statusRows = data.rows || [];
+    $('#statusMessage').textContent = data.sheet_ok ? '' : 'The sheet could not be loaded.';
+    $('#statusRows').innerHTML = statusRows.map(row => `<tr><td>${esc(row.title)}</td><td>${esc(row.category)}</td><td>${esc(sheetStatusLabel(row.sheet_status))}</td><td>${esc(row.person)}</td><td>${esc(localStatusLabel(row))}</td></tr>`).join('');
+  } catch { statusRows = []; $('#statusMessage').textContent = 'The sheet could not be loaded.'; }
+};
+$('#closeStatus').onclick = $('#closeStatusFoot').onclick = () => $('#statusDialog').close();
+$('#copyStatus').onclick = async () => {
+  const rows = statusRows.filter(row => row.local).map(row => [row.url, row.title, localStatusLabel(row)].join('\t')).join('\n');
+  try {
+    await navigator.clipboard.writeText(rows);
+    const button = $('#copyStatus'); button.textContent = 'Copied'; setTimeout(() => button.textContent = 'Copy for sheet', 1400);
+  } catch { $('#statusMessage').textContent = 'Could not copy to clipboard.'; }
+};
+
+function renderResults() {
+  const ready = (checkedResults || []).filter(r => r.state === 'ready');
+  $('#results').innerHTML = (checkedResults || []).map(r => `<div class="result-row ${r.state === 'ready' ? '' : 'muted'}"><span>${r.state === 'ready' ? '✓' : '✕'}</span><div class="result-info"><div class="result-title">${esc(r.title || r.url)}</div><div class="category">${esc(r.category || '')}</div></div><div class="message">${esc(r.message || '')}</div></div>`).join('');
+  const btn = $('#submitAdd'); btn.disabled = !keyIsSet || !checkedResults || ready.length === 0; btn.textContent = `Add ${ready.length || ''}${ready.length === 1 ? ' recording' : ready.length ? ' recordings' : ' recordings'}`;
+}
+async function checkKey() { try { const r = await (await fetch('/api/key')).json(); keyIsSet = !!r.set; $('#keySection').hidden = keyIsSet; $('#linksSection').style.opacity = keyIsSet ? '1' : '.45'; $('#linksSection').style.pointerEvents = keyIsSet ? '' : 'none'; renderResults(); } catch { keyIsSet = false; $('#keySection').hidden = false; renderResults(); } }
+$('#addRecordings').onclick = async () => { $('#addDialog').showModal(); await checkKey(); };
+$('#closeAdd').onclick = $('#cancelAdd').onclick = () => $('#addDialog').close();
+$('#saveKey').onclick = async () => { $('#keyError').textContent = ''; try { const res = await postJson('/api/key', {key:$('#keyInput').value}); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Could not save key.'); keyIsSet = true; $('#keySection').hidden = true; $('#linksSection').style.opacity = '1'; $('#linksSection').style.pointerEvents = ''; renderResults(); $('#keyInput').value = ''; } catch(e) { $('#keyError').textContent = e.message || 'Could not save key.'; } };
+$('#checkLinks').onclick = async () => { $('#checkStatus').textContent = 'Checking...'; $('#addError').textContent = ''; try { const res = await postJson('/api/check', {text:$('#linksInput').value}); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Could not check the links.'); checkedResults = data.results || []; renderResults(); $('#checkStatus').textContent = ''; } catch { $('#checkStatus').textContent = 'Could not check the links.'; } };
+$('#submitAdd').onclick = async () => { const urls = (checkedResults || []).filter(r => r.state === 'ready').map(r => r.url); if (!urls.length) return; $('#addError').textContent = ''; try { const res = await postJson('/api/add', {urls}); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Could not add recordings.'); $('#linksInput').value = ''; checkedResults = null; renderResults(); await refreshJobs(); startPolling(); } catch(e) { $('#addError').textContent = e.message || 'Could not add recordings.'; } };
+
+async function openVideo(id, file = null) {
+  flushDraft();
+  video = id;
+  segments = await (await fetch('/api/segments?video=' + encodeURIComponent(id))).json();
+  const v = videos.find(v => v.video_id === id);
+  $('#segTitle').textContent = `Segments · ${v ? v.category : ''}`;
+  renderRecordingAction(v);
+  loadVideos();
+  const last = file ? segments.findIndex(s => s.file === file) : -1;
+  const firstTodo = segments.findIndex(s => s.draft != null || s.status === 'todo' || s.status === 'stale');
+  select(last >= 0 ? last : firstTodo >= 0 ? firstTodo : 0, true);
+}
+
+function renderRecordingAction(v) {
+  const host = $('#recordingAction');
+  if (!v) { host.innerHTML = ''; return; }
+  if (v.state === 'done' || v.state === 'sent') {
+    host.innerHTML = '<span>Marked as done</span><button class="small" id="reopenRecording">Reopen</button>';
+    $('#reopenRecording').onclick = async () => {
+      if (!window.confirm('Reopen this recording? It will be removed from the finished work.')) return;
+      const res = await postJson('/api/reopen', {video});
+      if (!res.ok) return;
+      await loadVideos(); renderRecordingAction(videos.find(item => item.video_id === video));
+    };
+  } else if (v.done === v.total) {
+    host.innerHTML = '<button class="primary" id="markDone">Mark as done</button><span class="error" id="doneError"></span>';
+    $('#markDone').onclick = async () => {
+      const button = $('#markDone'), error = $('#doneError'); button.disabled = true; error.textContent = '';
+      try {
+        const res = await postJson('/api/done', {video}); const data = await res.json();
+        if (!res.ok) { error.textContent = data.error || 'Could not mark as done.'; button.disabled = false; return; }
+        await loadVideos(); renderRecordingAction(videos.find(item => item.video_id === video));
+      } catch { error.textContent = 'Could not mark as done.'; button.disabled = false; }
+    };
+  } else host.innerHTML = `<span>${Math.max(0, v.total - v.done)} clips left</span>`;
+}
+
+function renderList() {
+  $('#segments').innerHTML = segments.map((s, i) => `
+    <div class="seg ${i === index ? 'active' : ''}" data-i="${i}">
+      <span class="dot ${s.draft != null ? 'draft' : s.status}" title="${s.draft != null ? 'draft, not approved' : s.status}"></span><span class="n">${i + 1}</span>
+      <span class="t">${esc(s.draft ?? s.text)}</span>
+      ${(c => c ? `<span class="diffs" title="words to check">${c}</span>` : '')(suggestionsFor(s, s.draft ?? s.text).length)}
+    </div>`).join('');
+  document.querySelectorAll('.seg').forEach(el => el.onclick = () => select(+el.dataset.i));
+  const active = $('.seg.active');
+  if (active) active.scrollIntoView({ block: 'nearest' });
+}
+
+function select(i, force = false) {
+  if (i < 0 || i >= segments.length) return;
+  flushDraft();
+  index = i;
+  const s = segments[i], prev = segments[i - 1], next = segments[i + 1];
+  dirty = s.draft != null;
+  postState({ last: { video, file: s.file } });
+  const pills = [`${s.duration.toFixed(1)} s`, `${s.speakers} speaker${s.speakers > 1 ? 's' : ''}`]
+    .map(p => `<span class="pill">${p}</span>`);
+  if (s.overlap) pills.push('<span class="pill warn">speakers overlap</span>');
+  if (!s.auto_keep) pills.push(`<span class="pill warn">auto-dropped: ${esc(s.drop_reason)}</span>`);
+  if (s.status === 'approved') pills.push('<span class="pill ok">approved</span>');
+  if (s.status === 'excluded') pills.push('<span class="pill bad">excluded</span>');
+  if (s.status === 'stale') pills.push('<span class="pill warn">re-cut since your edit</span>');
+  if (s.draft != null) pills.push('<span class="pill warn" title="Saved automatically. Approve to use it for training.">draft, not approved</span>');
+  $('#editor').innerHTML = `
+    <div class="head"><strong>Segment ${i + 1} / ${segments.length}</strong>${pills.join('')}</div>
+    <div class="player">
+      <audio id="audio" controls preload="auto" src="/audio/${encodeURI(s.file)}"></audio>
+      ${[0.75, 1, 1.25, 1.5].map(r => `<button class="small speed ${r === speed ? 'on' : ''}" data-r="${r}">${r}×</button>`).join('')}
+    </div>
+    ${s.unsure.length ? `<div class="chips"><span class="note">Unsure words (click to hear):</span>
+      ${s.unsure.map(u => `<button class="chip" data-t="${u.offset}">${esc(u.word)}</button>`).join('')}</div>` : ''}
+    ${s.status === 'stale' ? `<div class="old">Your earlier text (audio was re-cut, check it still fits):<br>${esc(s.old_text)}</div>` : ''}
+    <div class="context">${prev ? '… ' + esc(prev.text.slice(-140)) : '<i>start of video</i>'}</div>
+    <div class="edwrap" id="edwrap"><div class="backdrop" id="backdrop" aria-hidden="true"></div><textarea id="text" spellcheck="false">${esc(s.draft ?? s.text)}</textarea></div>
+    <div class="legend" id="legend"></div>
+    <div class="context">${next ? esc(next.text.slice(0, 140)) + ' …' : '<i>end of video</i>'}</div>
+    <div class="actions">
+      <button class="primary" id="approve">Approve and next</button>
+      <button class="danger" id="exclude">Exclude from training</button>
+      <button id="reset">Reset to ElevenLabs text</button>
+      ${s.status !== 'todo' ? '<button id="undo">Mark as not reviewed</button>' : ''}
+      <span class="note" id="saved"></span>
+    </div>
+    <div class="keys">
+      <kbd>Esc</kbd> play / pause · <kbd>Shift</kbd>+<kbd>Esc</kbd> replay from start ·
+      <kbd>${MOD}</kbd>+<kbd>Enter</kbd> approve and next ·
+      <kbd>${MOD}</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> exclude and next<br>
+      Click a highlighted word to see the suggestion. "jel", "dal" and number hyphens (98-postotni) are fixed automatically. Write exactly what is said: keep eh / hm, repeats and stutters; numbers as digits (30, 2,5).
+    </div>`;
+  const audio = $('#audio'), text = $('#text');
+  audio.playbackRate = speed;
+  audio.addEventListener('loadedmetadata', () => audio.playbackRate = speed);
+  document.querySelectorAll('.speed').forEach(b => b.onclick = () => {
+    speed = +b.dataset.r; audio.playbackRate = speed;
+    try { localStorage.setItem('speed', speed); } catch {}
+    document.querySelectorAll('.speed').forEach(x => x.classList.toggle('on', +x.dataset.r === speed));
+  });
+  document.querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    audio.currentTime = Math.max(0, +c.dataset.t - 0.6); audio.play(); text.focus();
+  });
+  let sugg = [], open = -1;
+  const fit = () => { text.style.height = 'auto'; text.style.height = text.scrollHeight + 'px'; };
+  const paint = () => {
+    sugg = suggestionsFor(s, text.value);
+    let html = '', at = 0;
+    sugg.forEach((g, k) => {
+      html += esc(text.value.slice(at, g.start)) +
+        `<mark class="k-${g.kind}${k === open ? ' open' : ''}" data-k="${k}">${esc(text.value.slice(g.start, g.end))}</mark>`;
+      at = g.end;
+    });
+    $('#backdrop').innerHTML = html + esc(text.value.slice(at)) + '\n';
+    const kinds = [...new Set(sugg.map(g => g.kind))];
+    $('#legend').innerHTML = sugg.length ? kinds.map(k => `<span class="k-${k}">${KIND[k]}</span>`).join('') +
+      `<span style="margin-left:auto">${sugg.length} to check</span>` : '';
+  };
+  const closePop = () => { open = -1; const p = $('#pop'); if (p) p.remove(); paint(); };
+  const openPop = k => {
+    open = k; paint();
+    const g = sugg[k], mark = $(`#backdrop mark[data-k="${k}"]`), wrap = $('#edwrap');
+    const old = $('#pop'); if (old) old.remove();
+    const pop = document.createElement('div');
+    pop.id = 'pop'; pop.className = 'pop k-' + g.kind;
+    const swap = g.to === g.from ? '' : `<div class="swap"><s>${esc(g.from)}</s> &rarr; <b>${g.to ? esc(g.to) : '(remove)'}</b></div>`;
+    pop.innerHTML = `<div class="kind">${KIND[g.kind]}</div>${swap}<div class="why">${esc(g.why)}</div>
+      <div class="btns"><button class="small" data-act="play">Play here</button>
+      ${g.to === g.from ? '' : '<button class="small primary" data-act="accept">Accept</button>'}
+      <button class="small" data-act="keep">Keep mine</button></div>`;
+    wrap.appendChild(pop);
+    pop.style.left = Math.max(0, Math.min(mark.offsetLeft, wrap.clientWidth - pop.offsetWidth)) + 'px';
+    pop.style.top = (mark.offsetTop + mark.offsetHeight + 6) + 'px';
+    pop.onmousedown = e => e.preventDefault();      // keep the caret in the text
+    pop.onclick = e => {
+      const act = e.target.dataset.act;
+      if (act === 'play') { audio.currentTime = Math.max(0, g.start / Math.max(1, text.value.length) * audio.duration - 1.2); audio.play(); }
+      else if (act === 'accept') {
+        text.value = text.value.slice(0, g.start) + g.to + text.value.slice(g.end);
+        edited(); fit(); closePop();
+        text.setSelectionRange(g.start + g.to.length, g.start + g.to.length);
+      } else if (act === 'keep') {
+        (dismissed[s.file] = dismissed[s.file] || []).push(keyOf(s, g));
+        postState({ dismiss: { file: s.file, key: keyOf(s, g) } });
+        closePop();
+      }
+    };
+  };
+  text.onclick = () => {
+    const c = text.selectionStart, k = sugg.findIndex(g => c >= g.start && c <= g.end);
+    if (k >= 0 && k !== open) openPop(k); else if (k < 0 && open >= 0) closePop();
+  };
+  const edited = () => { dirty = text.value.trim() !== s.text.trim(); queueDraft(s, text.value); };
+  text.oninput = () => { edited(); fit(); if (open >= 0) closePop(); else paint(); };
+  new ResizeObserver(fit).observe($('#edwrap'));
+  fit(); paint();
+  $('#approve').onclick = () => save('approved');
+  $('#exclude').onclick = () => save('excluded');
+  $('#reset').onclick = () => { text.value = s.auto_text; edited(); fit(); closePop(); text.focus(); };
+  const undo = $('#undo'); if (undo) undo.onclick = () => save('todo', false);
+  renderList();
+  text.focus();
+  text.setSelectionRange(0, 0);
+}
+
+async function save(status, advance = true) {
+  const s = segments[index], text = $('#text').value.trim();
+  if (status === 'approved' && !text) { alert('The text is empty. Use "Exclude" for segments without speech.'); return; }
+  const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: s.file, auto_text: s.auto_text, text, status }) });
+  if (!res.ok) { alert('Saving failed: ' + res.status); return; }
+  s.status = status; s.text = status === 'todo' ? s.auto_text : text; dirty = false;
+  s.draft = null; if (pendingDraft && pendingDraft.file === s.file) pendingDraft = null;   // the server dropped it too
+  await loadVideos();
+  renderRecordingAction(videos.find(item => item.video_id === video));
+  if (advance && index + 1 < segments.length) select(index + 1, true);
+  else { select(index, true); $('#saved').textContent = advance ? 'Saved. That was the last segment.' : 'Saved.'; }
+}
+
+document.addEventListener('keydown', e => {
+  const audio = $('#audio');
+  if (!audio) return;
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (e.shiftKey) { audio.currentTime = 0; audio.play(); }
+    else audio.paused ? audio.play() : audio.pause();
+  } else if (mod && e.key === 'Enter') {
+    e.preventDefault();
+    save(e.shiftKey ? 'excluded' : 'approved');
+  }
+});
+// Last keystrokes are sent even when the tab or browser is closed.
+window.addEventListener('pagehide', () => {
+  if (pendingDraft) navigator.sendBeacon('/api/draft', new Blob([JSON.stringify(pendingDraft)], { type: 'application/json' }));
+});
+(async () => {
+  const state = await (await fetch('/api/state')).json().catch(() => ({}));
+  dismissed = state.dismissed || {};
+  hintsOn = state.hints === true;
+  const toggle = $('#hintsToggle');
+  toggle.checked = hintsOn;
+  toggle.onchange = () => {
+    hintsOn = toggle.checked;
+    postState({ hints: hintsOn });
+    if (index >= 0) select(index, true); else renderList();
+  };
+  await refreshJobs();
+  startPolling();
+  await loadVideos();
+  if (state.last && videos.some(v => v.video_id === state.last.video)) openVideo(state.last.video, state.last.file);
+})();
+</script>
+</body>
+</html>

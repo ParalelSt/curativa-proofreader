@@ -1,0 +1,14 @@
+# Work data never goes into the repo
+data/
+done/
+outbox/
+.venv/
+__pycache__/
+*.pyc
+*.wav
+*.mp3
+*.m4a
+*.webm
+.env*
+*.key
+.DS_Store

@@ -39,7 +39,7 @@
   .video-state.done { color: var(--ok); }
   .recording-action { display: flex; align-items: center; gap: 8px; padding: 0 12px 10px; color: var(--muted); font-size: 12px; }
   .recording-action .error { color: var(--bad); }
-  #addRecordings { display: block; width: calc(100% - 28px); margin: 4px 14px 10px; }
+  #addRecordings, #findMissing { display: block; width: calc(100% - 28px); margin: 4px 14px 10px; }
   .job-row { padding: 8px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
   .job-row:hover { background: var(--sel); }
   .job-row .title { font-size: 12px; font-weight: 600; }
@@ -149,7 +149,7 @@
 <body>
 <aside><div class="asidehead"><h2>Videos</h2>
   <label class="switch" title="Show model and spelling hints in the text"><input type="checkbox" id="hintsToggle"> Hints</label></div>
-  <button class="primary" id="addRecordings">+ Add recordings</button><div id="jobs"></div><div id="videos"></div>
+  <button class="primary" id="addRecordings">+ Add recordings</button><button id="findMissing">Find missing parts</button><div id="jobs"></div><div id="videos"></div>
   <div class="aside-actions"><button id="packageWork">Package finished work</button><span class="note" id="packageNote"></span><button id="openStatus">Status list</button><button id="openImport">Import finished work</button></div></aside>
 <nav><h2 id="segTitle">Segments</h2><div id="recordingAction" class="recording-action"></div><div id="segments"></div></nav>
 <main id="editor"><div class="empty">Choose a video on the left.</div></main>
@@ -160,6 +160,11 @@
     <div id="addError" class="add-error"></div>
     <section id="progress" class="progress" hidden><h4>In progress</h4><div id="progressRows"></div></section>
   </div><div class="dialog-foot"><button id="cancelAdd">Cancel</button><button id="submitAdd" class="primary" disabled>Add recordings</button></div>
+</dialog>
+<dialog id="missingDialog" aria-labelledby="missingTitle"><div class="dialog-head"><h3 id="missingTitle">Find missing parts</h3><button type="button" id="closeMissing" aria-label="Close">Close</button></div>
+  <div class="dialog-body"><div class="note">Some older recordings were saved without their first minute or the end of the video. Adding the missing parts downloads the video again and transcribes only the new parts, which uses your ElevenLabs credit. Your finished work is not changed.</div>
+    <div id="missingMessage" class="note" style="margin:10px 0"></div><div id="missingRows" class="results"></div></div>
+  <div class="dialog-foot"><button id="closeMissingFoot">Close</button><button id="addAllMissing" class="primary" disabled>Add missing parts to all</button></div>
 </dialog>
 <dialog id="importDialog" aria-labelledby="importTitle"><div class="dialog-head"><h3 id="importTitle">Import finished work</h3><button type="button" id="closeImport" aria-label="Close">Close</button></div>
   <div class="dialog-body"><div>Choose the zip files you received. Recordings you already have are skipped.</div><input id="importFiles" type="file" accept=".zip" multiple style="margin-top:12px"><div id="importResults" style="margin-top:12px"></div></div>
@@ -282,6 +287,7 @@ function renderJobs() {
   const readyNow = jobs.filter(j => j.step === 'ready');
   if (readyNow.some(j => !hadReadyJobs.has(j.id))) loadVideos();
   hadReadyJobs = new Set(readyNow.map(j => j.id));
+  if ($('#missingDialog').open) renderMissing();
   $('#progress').hidden = jobs.length === 0;
   $('#progressRows').innerHTML = jobs.map(j => {
     let status = '';
@@ -338,6 +344,39 @@ $('#submitImport').onclick = async () => {
   } catch (error) { results.innerHTML = `<div style="color:var(--bad)">${esc(error.message || 'Upload failed.')}</div>`; }
   await loadVideos(); input.value = ''; button.disabled = true;
 };
+
+let missingRows = [];
+const missingText = s => s >= 90 ? `about ${Math.round(s / 60)} min missing` : `${Math.round(s)} s missing`;
+function renderMissing() {
+  const busy = new Set(jobs.filter(j => j.kind === 'complete' && activeSteps.includes(j.step)).map(j => j.video_id));
+  const todo = missingRows.filter(r => r.missing_s > 0);
+  $('#missingRows').innerHTML = missingRows.filter(r => r.missing_s > 0 || r.error).map(r => r.error
+    ? `<div class="result-row muted"><div class="result-info"><div class="result-title">${esc(r.title)}</div><div class="category">Could not check this recording</div></div></div>`
+    : `<div class="result-row"><div class="result-info"><div class="result-title">${esc(r.title)}</div><div class="category">${missingText(r.missing_s)}</div></div><button class="small add-missing" data-id="${esc(r.video_id)}" ${busy.has(r.video_id) ? 'disabled' : ''}>${busy.has(r.video_id) ? 'Adding...' : 'Add missing parts'}</button></div>`).join('');
+  document.querySelectorAll('.add-missing').forEach(b => b.onclick = () => queueMissing([b.dataset.id]));
+  $('#addAllMissing').disabled = !todo.some(r => !busy.has(r.video_id));
+}
+async function queueMissing(ids) {
+  $('#missingMessage').textContent = '';
+  for (const id of ids) {
+    try {
+      const res = await postJson('/api/complete', {video: id}), data = await res.json();
+      if (!res.ok) { $('#missingMessage').textContent = data.error || 'Could not add the missing parts.'; break; }
+    } catch { $('#missingMessage').textContent = 'Could not add the missing parts.'; break; }
+  }
+  await refreshJobs(); startPolling(); renderMissing();
+}
+$('#findMissing').onclick = async () => {
+  $('#missingDialog').showModal();
+  $('#missingMessage').textContent = 'Checking the recordings...'; $('#missingRows').innerHTML = ''; $('#addAllMissing').disabled = true;
+  try {
+    const data = await (await fetch('/api/missing')).json(); missingRows = data.rows || [];
+    $('#missingMessage').textContent = data.error || (missingRows.some(r => r.missing_s > 0) ? '' : 'No recording is missing audio.');
+    renderMissing();
+  } catch { missingRows = []; $('#missingMessage').textContent = 'Could not check for missing parts.'; }
+};
+$('#closeMissing').onclick = $('#closeMissingFoot').onclick = () => $('#missingDialog').close();
+$('#addAllMissing').onclick = () => queueMissing(missingRows.filter(r => r.missing_s > 0).map(r => r.video_id));
 
 let statusRows = [];
 const sheetStatusLabel = status => ({free:'free', in_progress:'in progress', done:'done'})[status] || status;

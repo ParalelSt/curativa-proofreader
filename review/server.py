@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "prep"))
 import add_recording  # noqa: E402
+import complete_recording  # noqa: E402
 import export_done  # noqa: E402
 import import_done  # noqa: E402
 import tools  # noqa: E402
@@ -41,6 +42,7 @@ JOBS: list[dict] = []
 JOBS_LOCK = threading.Lock()
 DRAFTS = ROOT / "data" / "drafts.json"         # typed but not approved text, saved while typing
 STATE = ROOT / "data" / "review_state.json"    # last open segment and "Keep mine" choices
+HIDDEN = ROOT / "data" / "hidden_videos.json"   # finished recordings kept out of the list
 
 
 def read_csv(path: Path) -> list[dict]:
@@ -173,6 +175,40 @@ def segments_payload(video_id: str) -> list[dict]:
     return out
 
 
+def missing_payload() -> dict:
+    """Recordings (hidden ones too) with audio that was never downloaded. Reads metadata only: no audio, no paid call."""
+    try:
+        return {"rows": complete_recording.check()}
+    except Exception:
+        return {"rows": [], "error": "Could not check for missing parts."}
+
+
+def queue_complete(video_id: str) -> tuple[dict, int]:
+    """Queue a job that adds the missing parts of one recording (transcribing them is a paid ElevenLabs call)."""
+    if not tools.has_key():
+        return {"error": "Paste the ElevenLabs key first."}, 400
+    row = next((item for item in read_csv(VIDEOS) if item["video_id"] == video_id), None)
+    if row is None or re.search(r"-p\d+$", video_id):
+        return {"error": "Choose a recording from the list."}, 400
+    with JOBS_LOCK:
+        queued = 0
+        if not any(job["video_id"] == video_id and job["step"] not in ("ready", "failed") for job in JOBS):
+            JOBS.append({"id": max((job["id"] for job in JOBS), default=0) + 1, "kind": "complete",
+                         "url": row["url"], "video_id": video_id, "title": f"{row['title']} (missing parts)",
+                         "category": row["category"], "step": "queued", "error": "", "started": None,
+                         "finished": None, "clips": None})
+            queued = 1
+        return {"queued": queued, "jobs": jobs_payload_locked()}, 200
+
+
+def run_job(job: dict, on_step) -> tuple[str, int]:
+    if job.get("kind") == "complete":
+        result = complete_recording.complete(job["video_id"], on_step=on_step)
+        return result["video_id"], sum(part.get("clips", 0) for part in result["parts"])
+    result = add_recording.add(job["url"], on_step=on_step)
+    return result["video_id"], result["clips"]
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # keep the terminal quiet
         pass
@@ -195,7 +231,11 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif url.path == "/api/videos":
-            self.send_json(videos_payload())
+            # Recordings listed in data/hidden_videos.json stay in the data (and in training) but are not shown.
+            hidden = set(read_json(HIDDEN)) if HIDDEN.exists() else set()
+            self.send_json([v for v in videos_payload() if v["video_id"] not in hidden])
+        elif url.path == "/api/missing":
+            self.send_json(missing_payload())
         elif url.path == "/api/status":
             self.send_json(status_payload())
         elif url.path == "/api/key":
@@ -318,6 +358,9 @@ class Handler(BaseHTTPRequestHandler):
                     queued += 1
                 jobs = jobs_payload_locked()
             return self.send_json({"queued": queued, "jobs": jobs})
+        if path == "/api/complete":
+            payload, code = queue_complete(body.get("video", ""))
+            return self.send_json(payload, code)
         if path == "/api/retry":
             with JOBS_LOCK:
                 job = next((job for job in JOBS if job["id"] == body.get("id")), None)
@@ -399,10 +442,10 @@ def job_worker() -> None:
             with JOBS_LOCK:
                 job["step"] = step
         try:
-            result = add_recording.add(job["url"], on_step=on_step)
+            video_id, clips = run_job(job, on_step)
             with JOBS_LOCK:
-                job["video_id"] = result["video_id"]
-                job["clips"] = result["clips"]
+                job["video_id"] = video_id
+                job["clips"] = clips
                 job["step"] = "ready"
                 job["finished"] = datetime.now().timestamp()
         except Exception as error:

@@ -11,6 +11,14 @@ Everything runs on your own computer. Your work is saved in the `data` folder ne
 
 You need Python 3.11 or newer. The first start takes a minute while the tool installs what it needs. Then it opens in your browser at http://127.0.0.1:8765. Keep the black window open while you work.
 
+## Updating
+
+On Windows the tool updates itself: every time you double-click `Start.bat` it first runs `git pull`, then starts. You never need to download a new zip. Your work in `data`, `done` and `outbox` is not part of the update and stays as it is.
+
+If you used the older zip version (a `CurativaProofread` folder inside this one), the first start moves its `data`, `done`, `outbox` and `runtime` folders up next to `Start.bat`. From then on, always start with the `Start.bat` at the top, not the one inside `CurativaProofread`.
+
+On Mac, run `git pull` in the tool folder, then start as usual.
+
 ## How to use it
 
 1. **Key (first time only).** Click **+ Add recordings** and paste the ElevenLabs key you were given. It is saved on this computer only.

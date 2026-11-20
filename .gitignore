@@ -12,3 +12,6 @@ __pycache__/
 .env*
 *.key
 .DS_Store
+# The portable Python from the Windows zip, and the old zip folder
+runtime/
+CurativaProofread/

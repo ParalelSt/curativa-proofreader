@@ -19,8 +19,6 @@ except ImportError:
 ROOT = Path(__file__).resolve().parent.parent
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1nNmUwbvTH7la1dxs2x7g6mVO60AspPJi_lYNMaf_lmc/export?format=csv"
 SHEET_CACHE = ROOT / "data" / "sheet.csv"
-DEFAULT_START = 60
-DEFAULT_MINUTES = 22
 
 
 def video_id_of(url: str) -> str | None:
@@ -126,8 +124,8 @@ def _is_connection_error(error: BaseException) -> bool:
     )
 
 
-def add(url: str, on_step=None, start: float = DEFAULT_START,
-        minutes: float | None = DEFAULT_MINUTES) -> dict:
+def add(url: str, on_step=None) -> dict:
+    """Download the whole recording, transcribe it and cut it into clips. No part of it is left out."""
     video_id = video_id_of(url)
     if video_id is None:
         raise ValueError("Not a YouTube link.")
@@ -142,7 +140,7 @@ def add(url: str, on_step=None, start: float = DEFAULT_START,
         if not wav.exists():
             if on_step:
                 on_step("downloading")
-            download.download(item, download.load_index(), start, minutes)
+            download.download(item, download.load_index())
         if not transcript_path.exists():
             if on_step:
                 on_step("transcribing")

@@ -2,7 +2,7 @@
 
 Usage:
   python prep/download.py <url> [<url> ...] --category Neurologija
-  python prep/download.py --csv data/sheet.csv --ids id1,id2 --start 60 --max-minutes 22
+  python prep/download.py --csv data/sheet.csv --ids id1,id2
   python prep/download.py --csv sheet.csv [--limit 3] [--ids id1,id2]
 
 Output:
@@ -66,16 +66,16 @@ def save_index(index: dict[str, dict]) -> None:
         writer.writerows(index.values())
 
 
-def to_wav(source: Path, target: Path, start: float = 0, minutes: float | None = None) -> None:
-    clip = (["-ss", str(start)] if start else []) + (["-t", str(minutes * 60)] if minutes else [])
+def to_wav(source: Path, target: Path) -> None:
+    """Convert the whole recording. Nothing is skipped or cut off; chunking happens later in segment.py."""
     subprocess.run(
-        [tools.find("ffmpeg"), "-y", "-loglevel", "error", *clip, "-i", str(source),
+        [tools.find("ffmpeg"), "-y", "-loglevel", "error", "-i", str(source),
          "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(target)],
         check=True,
     )
 
 
-def download(item: dict, index: dict[str, dict], start: float = 0, minutes: float | None = None) -> None:
+def download(item: dict, index: dict[str, dict]) -> None:
     SOURCE.mkdir(parents=True, exist_ok=True)
     options = {
         "format": "bestaudio/best",
@@ -94,14 +94,14 @@ def download(item: dict, index: dict[str, dict], start: float = 0, minutes: floa
             print(f"download {video_id}: {info.get('title')}")
             info = ydl.extract_info(item["url"], download=True)
             source = Path(ydl.prepare_filename(info))
-            to_wav(source, wav, start, minutes)
+            to_wav(source, wav)
             source.unlink()
     index[video_id] = {
         "video_id": video_id,
         "url": f"https://www.youtube.com/watch?v={video_id}",
         "title": info.get("title", ""),
         "category": item.get("category", ""),
-        "duration_s": min(info.get("duration") or 0, minutes * 60) if minutes else info.get("duration", ""),
+        "duration_s": info.get("duration", ""),
         "clean_audio": item.get("clean_audio", ""),
         "comment": item.get("comment", ""),
     }
@@ -115,8 +115,6 @@ def main() -> int:
     parser.add_argument("--csv", type=Path, help="Google Sheet exported as CSV")
     parser.add_argument("--ids", default="", help="only these video ids from the CSV, comma separated")
     parser.add_argument("--limit", type=int, help="only the first N videos")
-    parser.add_argument("--max-minutes", type=float, help="keep at most this many minutes of each video")
-    parser.add_argument("--start", type=float, default=0, help="skip this many seconds at the start (intros)")
     args = parser.parse_args()
 
     items = [{"url": url, "category": args.category} for url in args.urls]
@@ -139,7 +137,7 @@ def main() -> int:
     failed = []
     for item in items:
         try:
-            download(item, index, args.start, args.max_minutes)
+            download(item, index)
         except Exception as error:  # report and continue with the next video
             print(f"FAILED {item['url']}: {error}", file=sys.stderr)
             failed.append(item["url"])
